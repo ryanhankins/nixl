@@ -177,15 +177,14 @@ nixlLibfabricRailManager::prepareAndSubmitTransfer(
         req->chunk_size = transfer_size;
         req->local_addr = local_addr;
 
-        // For TCP providers, use offset 0 instead of virtual address
-        // TCP providers don't support FI_MR_VIRT_ADDR and expect offset-based addressing
-        if (data_rails_[rail_id]->provider_name == "tcp" ||
-            data_rails_[rail_id]->provider_name == "sockets") {
-            req->remote_addr = 0; // Use offset 0 for TCP providers
-            NIXL_DEBUG << "TCP provider detected: using offset 0 instead of virtual address "
+        // Use offset if provider does not support FI_MR_VIRT_ADDR
+        // Providers that don't report FI_MR_VIRT_ADDR expect offset-based addressing
+        if (!data_rails_[rail_id]->supportsVirtAddr()) {
+            req->remote_addr = 0; // Use offset 0 for providers without virtual address support
+            NIXL_DEBUG << "Provider without FI_MR_VIRT_ADDR: using offset 0 instead of virtual address "
                        << (void *)remote_base_addr << " for rail " << rail_id;
         } else {
-            req->remote_addr = remote_base_addr; // Use virtual address for EFA and other providers
+            req->remote_addr = remote_base_addr; // Use virtual address for providers with VIRT_ADDR
         }
 
         req->local_mr = local_mrs[rail_id];
@@ -256,17 +255,16 @@ nixlLibfabricRailManager::prepareAndSubmitTransfer(
             req->chunk_size = current_chunk_size;
             req->local_addr = static_cast<char *>(local_addr) + chunk_offset;
 
-            // For TCP providers, use offset instead of virtual address
-            // TCP providers don't support FI_MR_VIRT_ADDR and expect offset-based addressing
-            if (data_rails_[rail_id]->provider_name == "tcp" ||
-                data_rails_[rail_id]->provider_name == "sockets") {
-                req->remote_addr = chunk_offset; // Use chunk offset for TCP providers
-                NIXL_DEBUG << "TCP provider detected: using chunk offset " << chunk_offset
+            // Use offset if provider does not support FI_MR_VIRT_ADDR
+            // Providers that don't report FI_MR_VIRT_ADDR expect offset-based addressing
+            if (!data_rails_[rail_id]->supportsVirtAddr()) {
+                req->remote_addr = chunk_offset; // Use chunk offset for providers without virtual address support
+                NIXL_DEBUG << "Provider without FI_MR_VIRT_ADDR: using chunk offset " << chunk_offset
                            << " instead of virtual address "
                            << (void *)(remote_base_addr + chunk_offset) << " for rail " << rail_id;
             } else {
                 req->remote_addr = remote_base_addr +
-                    chunk_offset; // Use virtual address for EFA and other providers
+                    chunk_offset; // Use virtual address for providers with VIRT_ADDR
             }
 
             req->local_mr = local_mrs[rail_id];

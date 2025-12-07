@@ -422,9 +422,10 @@ nixlLibfabricRail::nixlLibfabricRail(const std::string &device,
         hints->domain_attr->mr_mode = FI_MR_LOCAL | FI_MR_ALLOCATED;
         hints->domain_attr->mr_key_size = 0; // Let provider decide
     } else {
-        // EFA and other providers support advanced memory registration
+        // EFA, CXI and other providers support advanced memory registration
         hints->domain_attr->mr_mode =
-            FI_MR_LOCAL | FI_MR_HMEM | FI_MR_VIRT_ADDR | FI_MR_ALLOCATED | FI_MR_PROV_KEY;
+            FI_MR_LOCAL | FI_MR_HMEM | FI_MR_VIRT_ADDR |
+            FI_MR_ALLOCATED | FI_MR_PROV_KEY | FI_MR_ENDPOINT;
         hints->domain_attr->mr_key_size = 2;
     }
     hints->domain_attr->name = strdup(device_name.c_str());
@@ -1272,6 +1273,12 @@ nixlLibfabricRail::postRead(void *local_buffer,
 
 // Memory Registration Methods
 
+bool
+nixlLibfabricRail::supportsVirtAddr() const {
+    return (info && info->domain_attr && (info->domain_attr->mr_mode & FI_MR_VIRT_ADDR));
+}
+
+
 nixl_status_t
 nixlLibfabricRail::registerMemory(void *buffer,
                                   size_t length,
@@ -1347,8 +1354,10 @@ nixlLibfabricRail::registerMemory(void *buffer,
     iov.iov_len = length;
     mr_attr.mr_iov = &iov;
     mr_attr.iov_count = 1;
+    int ret = 0;
 
-    int ret = fi_mr_regattr(domain, &mr_attr, 0, &mr);
+    ret = fi_mr_regattr(domain, &mr_attr, 0, &mr);
+
     if (ret) {
         NIXL_ERROR << "fi_mr_reg failed on rail " << rail_id << ": " << fi_strerror(-ret)
                    << " (buffer=" << buffer << ", length=" << length
@@ -1357,6 +1366,24 @@ nixlLibfabricRail::registerMemory(void *buffer,
     }
 
     *mr_out = mr;
+
+    if (info->domain_attr->mr_mode & FI_MR_ENDPOINT) {
+        ret = fi_mr_bind(mr, &endpoint->fid, 0);
+        if (ret) {
+            NIXL_ERROR << "fi_mr_bind failed on rail " << rail_id << ": " << fi_strerror(-ret);
+            fi_close(&mr->fid);
+            return NIXL_ERR_BACKEND;
+        }
+
+        ret = fi_mr_enable(mr);
+        if (ret) {
+            NIXL_ERROR << "fi_mr_enable failed on rail " << rail_id << ": " << fi_strerror(-ret);
+            fi_close(&mr->fid);
+            return NIXL_ERR_BACKEND;
+        }
+    }
+
+
     *key_out = fi_mr_key(mr);
 
     NIXL_TRACE << "Memory Registration SUCCESS: rail=" << rail_id << " provider=" << provider_name

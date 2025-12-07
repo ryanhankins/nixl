@@ -274,6 +274,9 @@ public:
     isProperlyInitialized() const;
 
     // Memory registration methods
+
+    /** Return true if this rail's provider supports FI_MR_VIRT_ADDR */
+    bool supportsVirtAddr() const;
     /** Register memory buffer with libfabric */
     nixl_status_t
     registerMemory(void *buffer,
